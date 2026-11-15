@@ -1,0 +1,7 @@
+dist/
+worker/index.js
+node_modules/
+.env*
+.dev.vars*
+.openai/hosting.json
+__pycache__/
