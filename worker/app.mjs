@@ -71,6 +71,7 @@ async function feed(request,env,ctx){
 }
 export default {async fetch(request,env,ctx){
  const path=new URL(request.url).pathname;
+ if(path.startsWith('/api/ai/'))return aiApi(request,env,ctx);
  if(path.startsWith('/api/')&&path!=='/api/activities')return demandApi(request,env);
  if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers:{Allow:'GET, HEAD'}});
  if(path==='/api/activities'){try{return await feed(request,env,ctx)}catch{return json({error:'소식을 불러오지 못했습니다. 잠시 후 다시 시도하세요.'},503)}}
