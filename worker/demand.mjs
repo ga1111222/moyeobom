@@ -21,6 +21,21 @@ async function bodyJson(request){if(request.headers.get('origin')!==new URL(requ
 const rows=async(stmt)=>(await stmt.all()).results||[];
 async function topicSummary(db,school){return rows(db.prepare("SELECT topic, COUNT(DISTINCT actor_id) AS browsers, SUM(CASE WHEN kind='search' THEN 1 ELSE 0 END) AS searches, SUM(CASE WHEN kind='wish' THEN 1 ELSE 0 END) AS wishes FROM demand_signals WHERE school_id=? AND updated_at>=datetime('now','-90 days') GROUP BY topic ORDER BY wishes DESC, browsers DESC, searches DESC LIMIT 30").bind(school))}
 function publicSurvey(row){const {created_by,options_json,...rest}=row;return {...rest,options:JSON.parse(options_json)}}
+async function ensureDefaultSurveys(db){
+ const c=await db.prepare('SELECT COUNT(*) AS n FROM planning_surveys').first();
+ if((c?.n||0)>0)return;
+ const closes=new Date(Date.now()+14*864e5).toISOString();
+ const defaults=[
+  ['ks','AI 포트폴리오·실무 특강 사전 수요조사','시험 기간 이후 진행할 실무 특강 수요를 파악합니다. 비전공자도 참여 가능한 실습 위주 구성을 검토 중입니다.','생성형 ai 포트폴리오'],
+  ['pknu','현직자 멘토링·자소서 실전 워크숍 수요조사','방학 전 취·창업 집중 기간에 맞춘 직무별 현직자 멘토링과 자소서 첨삭 특강 수요를 확인합니다.','자소서·면접 실전 특강'],
+  ['tongmyong','로컬·AI 프로젝트 미니 해커톤 사전 수요조사','학생들이 팀을 이뤄 주말 1박 2일 또는 원데이로 진행하는 실전 미니 해커톤 참여 의향을 조사합니다.','로컬 프로젝트 해커톤'],
+  ['namgu-union','부산 남구 3개 대학 연합 네트워킹 데이 수요조사','경성대·국립부경대·동명대 학생이 함께 참여하는 연합 네트워킹 및 팀 빌딩 행사 기획안을 준비 중입니다.','남구 대학 연합 네트워킹']
+ ];
+ const opts=JSON.stringify(['참여하고 싶어요','일정이 맞으면 참여하고 싶어요','관심이 없어요']);
+ for(const [school,title,desc,topic] of defaults){
+  await db.prepare('INSERT OR IGNORE INTO planning_surveys (id,school_id,title,description,topic,options_json,status,closes_at,created_by) VALUES (?,?,?,?,?,?,?,?,?)').bind('sample-survey-'+school,school,title,desc,topic,opts,'published',closes,'system-sample').run();
+ }
+}
 async function demandApi(request,env){
  const url=new URL(request.url),path=url.pathname;const id=await identity(request);let out;
  const respond=(v,status=200)=>{const r=json(v,status);if(id.cookie)r.headers.set('Set-Cookie',id.cookie);return r};
@@ -51,7 +66,7 @@ async function demandApi(request,env){
   await env.DB.prepare('INSERT INTO demand_signals (id,school_id,actor_id,topic,kind) VALUES (?,?,?,?,?) ON CONFLICT(school_id,actor_id,topic,kind) DO UPDATE SET updated_at=CURRENT_TIMESTAMP').bind(crypto.randomUUID(),school,id.actor,topic,b.kind).run();return respond({saved:true,topic});
  }
  if(path==='/api/surveys'&&request.method==='GET'){
-  const school=schoolId(url.searchParams.get('school'));const results=await rows(env.DB.prepare("SELECT s.*,r.choice AS my_choice,r.note AS my_note FROM planning_surveys s LEFT JOIN survey_responses r ON s.id=r.survey_id AND r.actor_id=? WHERE s.school_id=? AND s.status='published' AND s.closes_at>? ORDER BY s.created_at DESC").bind(id.actor,school,new Date().toISOString()));return respond({surveys:results.map(publicSurvey)});
+  const school=schoolId(url.searchParams.get('school'));await ensureDefaultSurveys(env.DB);const results=await rows(env.DB.prepare("SELECT s.*,r.choice AS my_choice,r.note AS my_note FROM planning_surveys s LEFT JOIN survey_responses r ON s.id=r.survey_id AND r.actor_id=? WHERE s.school_id=? AND s.status='published' AND s.closes_at>? ORDER BY s.created_at DESC").bind(id.actor,school,new Date().toISOString()));return respond({surveys:results.map(publicSurvey)});
  }
  if(path==='/api/responses'&&request.method==='POST'){
   const b=await bodyJson(request),survey=await env.DB.prepare('SELECT * FROM planning_surveys WHERE id=?').bind(textValue(b.survey_id,1,80,'설문 ID')).first();if(!survey||survey.status!=='published'||survey.closes_at<=new Date().toISOString())throw apiError('응답 가능한 설문이 아닙니다.',409);

@@ -43,10 +43,13 @@ export function parseWevity(html,source,page=1,checkedAt=new Date().toISOString(
   const day=plain(li.match(/<div\b[^>]*class\s*=\s*["']day["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]||'');
   if(day&&!/접수중|마감임박|접수예정/.test(day))continue;
   const views=Number(plain(li.match(/<div\b[^>]*class\s*=\s*["']read["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]||'0').replace(/,/g,''))||0;
+  const dMatch=day.match(/D-(\d+)/i);
+  const addDays=(ymd,n)=>{const dt=new Date(ymd+'T00:00:00+09:00');dt.setUTCDate(dt.getUTCDate()+n);return dt.toISOString().slice(0,10)};
+  const deadline_end=dMatch?addDays(today,Number(dMatch[1])):(/D-?day/i.test(day)?today:'');
   const url=new URL(anchor[1].replace(/&amp;/g,'&'),source.base);if(!allowedSourceUrl(url.href))continue;
   const ix=url.searchParams.get('ix')||String(listed);
   const category=/봉사활동/.test(sub)?'봉사·캠프':(/대외활동\/서포터즈/.test(sub)&&!/공모전|대회/.test(title))?'서포터즈·대외활동':'공모전·대회';
-  records.push({id:'wevity:'+ix,school_id:source.school_id,title,date:today,category,source:[source.name,organ,day].filter(Boolean).join(' · '),source_id:source.id,scope:'교외',url:url.href,views,author:organ,has_attachment:false,checked_at:checkedAt,page});
+  records.push({id:'wevity:'+ix,school_id:source.school_id,title,date:today,category,source:[source.name,organ,day].filter(Boolean).join(' · '),source_id:source.id,scope:'교외',url:url.href,views,author:organ,has_attachment:false,checked_at:checkedAt,page,...(deadline_end?{deadline_end}:{})});
  }
  return {items:records,listed};
 }
@@ -70,7 +73,8 @@ export function parseBoard(html,source,page=1,checkedAt=new Date().toISOString()
   if(isPknu){const bbs=url.searchParams.get('bbsId');url.search='';url.searchParams.set('action','view');url.searchParams.set('no',seq);if(bbs)url.searchParams.set('bbsId',bbs)}
   if(isTu){url.search='';url.searchParams.set('mode','view');url.searchParams.set('articleNo',seq)}
   const scope=source.scope==='교내외'?(/교외|외부|대외활동|서포터즈|기자단|명예기자|모니터링단|소방서|부산시|부산광역시|진흥원|공단|청년.*단|전국|대구|전북|UN\s*청소년|해외\s*봉사|해외봉사/.test(title)?'교외':'교내'):source.scope;
-  records.push({id:source.id+':'+seq,school_id:source.school_id||'ks',title,date,category,source:source.name,source_id:source.id,scope,url:url.href,views:Number(plain(cell(isPknu?'bdlCount':isTu?'hit':'cnt')).replace(/,/g,''))||0,author:isPknu||isTu?'':plain(cell('writer')),has_attachment:/ico_file|파일첨부|첨부파일|board_file/.test(row),checked_at:checkedAt,page});
+  const pknuDeadline=isPknu?[...row.matchAll(/<td\b[^>]*class\s*=\s*["'][^"']*\bbdlCount\b[^"']*["'][^>]*>([\s\S]*?)<\/td>/gi)].map(m=>plain(m[1]).match(/(\d{4}-\d{2}-\d{2})/)?.[1]).find(Boolean)||'':'';
+  records.push({id:source.id+':'+seq,school_id:source.school_id||'ks',title,date,category,source:source.name,source_id:source.id,scope,url:url.href,views:Number(plain(cell(isPknu?'bdlCount':isTu?'hit':'cnt')).replace(/,/g,''))||0,author:isPknu||isTu?'':plain(cell('writer')),has_attachment:/ico_file|파일첨부|첨부파일|board_file/.test(row),checked_at:checkedAt,page,...(pknuDeadline?{deadline_end:pknuDeadline}:{})});
  }
  if(!listed&&!/등록된.*없|게시물.*없|게시글.*없|자료.*없/.test(plain(body)))throw new Error('목록을 읽지 못했습니다.');
  return {items:records,listed};
